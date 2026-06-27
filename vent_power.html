@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>人工呼吸 & Mechanical Power シミュレーター｜離島麻酔ツールキット</title>
+<meta name="description" content="VCV/PCV の波形・P-Vループ・メカニカルパワー（弾性/抵抗/PEEP内訳）を可視化する麻酔教育ツール。">
+<meta name="theme-color" content="#0c111b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vent Power">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<style>
+  :root{
+    --ink:#0c111b; --surface:#141b29; --elev:#1c2536; --line:#2a3550;
+    --txt:#e9eef7; --muted:#93a1b8; --dim:#6c7b95;
+    --press:#f5a524; --flow:#34d399; --vol:#38bdf8; --power:#2dd4bf;
+    --green:#34d399; --amber:#f5a524; --red:#ef4444;
+    --mp-el:#2dd4bf; --mp-re:#f5a524; --mp-pe:#38bdf8;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--ink);color:var(--txt);font-family:var(--ui);-webkit-text-size-adjust:100%}
+  body{line-height:1.5;padding-bottom:calc(48px + env(safe-area-inset-bottom))}
+  .wrap{max-width:960px;margin:0 auto;padding:0 14px}
+  header{border-bottom:1px solid var(--line);padding:12px 0;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0;background:#0c111b;z-index:20}
+  .brand{display:flex;flex-direction:column;line-height:1.15}
+  .brand b{font-size:15px;letter-spacing:.02em}
+  .brand span{font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .tabs{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px}
+  .tabs button{flex:0 0 auto;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--muted);font-family:var(--ui);font-size:14px;font-weight:700;padding:8px 4px;cursor:pointer}
+  .tabs button[aria-pressed="true"]{color:var(--power);border-bottom-color:var(--power)}
+  main{padding-top:16px}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .card h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+
+  /* mode + controls */
+  .seg{display:inline-flex;background:var(--elev);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:16px}
+  .seg button{background:transparent;border:0;color:var(--muted);font-family:var(--ui);font-size:14px;font-weight:600;padding:9px 20px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--power);color:#062b27}
+  .seg.sm button{padding:7px 13px;font-size:12.5px}
+
+  .sliders{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px 22px}
+  .sl{display:flex;flex-direction:column;gap:6px}
+  .sl .top{display:flex;justify-content:space-between;align-items:baseline}
+  .sl label{font-size:12px;color:var(--muted)}
+  .sl .v{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
+  .sl .v small{color:var(--dim);font-weight:500;font-size:11px;margin-left:2px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:5px;background:var(--line);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--power);cursor:pointer;border:4px solid #0c111b;box-shadow:0 0 0 1px var(--power)}
+  input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--power);cursor:pointer;border:3px solid #0c111b}
+  input[type=range]:focus-visible{box-shadow:0 0 0 2px var(--power)}
+  select{background:var(--elev);border:1px solid var(--line);color:var(--txt);font-family:var(--mono);font-size:14px;border-radius:8px;padding:6px 8px}
+
+  /* preset / action chips */
+  .chips{display:flex;flex-wrap:wrap;gap:10px}
+  .chips button{background:var(--elev);border:1px solid var(--line);color:var(--txt);font-family:var(--ui);font-size:13px;font-weight:600;padding:9px 14px;border-radius:10px;cursor:pointer;transition:border-color .12s,background .12s}
+  .chips button:hover{border-color:var(--power)}
+  .chips button[aria-pressed="true"]{background:rgba(45,212,191,.14);border-color:var(--power);color:var(--power)}
+
+  /* readouts */
+  .hero{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:14px}
+  @media(max-width:640px){.hero{grid-template-columns:1fr}}
+  .mpbox{background:linear-gradient(135deg,#10201e,#142a27);border:1px solid #1f4a44;border-radius:14px;padding:18px}
+  .mpbox .lab{font-size:11px;color:#7fd9cd;letter-spacing:.08em;text-transform:uppercase}
+  .mpbox .big{font-family:var(--mono);font-size:54px;font-weight:800;color:var(--power);line-height:1;font-variant-numeric:tabular-nums;margin:6px 0}
+  .mpbox .big small{font-size:18px;color:#7fd9cd;font-weight:600}
+  .mpbar{display:flex;height:13px;border-radius:7px;overflow:hidden;background:#0a1a18;border:1px solid #1f4a44;margin:14px 0 9px}
+  .mpbar span{height:100%;transition:width .15s}
+  .mpleg{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+  .mpleg i{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+  .mpleg b{color:var(--txt);font-weight:700;font-variant-numeric:tabular-nums}
+  .mpbox .surrogate{font-size:12px;color:var(--muted);font-family:var(--mono);border-top:1px solid #1f4a44;padding-top:9px;margin-top:11px}
+  .mpbox .thr{font-size:11px;margin-top:6px}
+  .srcbox{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .srcbox .t{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px}
+  .m{background:var(--elev);border:1px solid var(--line);border-radius:11px;padding:11px 12px}
+  .m .l{font-size:11px;color:var(--muted);display:block;margin-bottom:4px}
+  .m .n{font-family:var(--mono);font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+  .m .u{font-size:12px;color:var(--dim);font-weight:500;margin-left:3px}
+
+  /* comparison table */
+  table.cmp{width:100%;border-collapse:collapse;font-size:13px}
+  table.cmp th,table.cmp td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;font-family:var(--mono)}
+  table.cmp th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  table.cmp td:first-child,table.cmp th:first-child{text-align:left;font-family:var(--ui)}
+  .dUp{color:var(--amber)} .dDn{color:var(--green)} .dEq{color:var(--dim)}
+
+  canvas{display:block;width:100%;background:#0a0f18;border:1px solid var(--line);border-radius:12px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:10px 2px 0}
+  .legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:5px;vertical-align:2px}
+  .legend i.dash{height:0;border-top:2px dashed currentColor;width:14px}
+
+  details.refbox{margin-top:6px}
+  details.refbox summary{font-size:11px;color:var(--muted);cursor:pointer;letter-spacing:.05em;text-transform:uppercase;list-style:none}
+  details.refbox summary::-webkit-details-marker{display:none}
+  details.refbox summary::before{content:"▸ ";color:var(--power)}
+  details.refbox[open] summary::before{content:"▾ "}
+  .ref{font-size:11px;color:var(--dim);line-height:1.6}
+  .ref b{color:var(--muted)}
+  .pbwgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:10px}
+  .note{font-size:12px;color:var(--muted);line-height:1.6}
+  .note b{color:var(--txt)}
+  .disc{background:#3a1d1d;border:1px solid #7f3030;border-radius:11px;padding:11px 13px;font-size:11.5px;color:#ffd9d9;line-height:1.6;margin-top:18px}
+  .disc b{color:#ffb3b3}
+  .badge{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700}
+  .miniToggle{background:var(--elev);border:1px solid var(--line);color:var(--muted);font-family:var(--ui);font-size:11px;font-weight:700;padding:5px 11px;border-radius:8px;cursor:pointer;letter-spacing:0;text-transform:none}
+  .miniToggle[aria-pressed="true"]{background:rgba(45,212,191,.14);border-color:var(--power);color:var(--power)}
+
+  /* R/I ratio tool */
+  ol.steps{margin:4px 0 16px 20px;font-size:12.5px;color:var(--muted);line-height:1.85}
+  ol.steps li{margin-bottom:3px} ol.steps b{color:var(--txt)}
+  .ngrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+  .nin{display:flex;flex-direction:column;gap:5px}
+  .nin label{font-size:12px;color:var(--muted)}
+  .nin .ip{display:flex;align-items:center;gap:6px}
+  .nin input{background:var(--elev);border:1px solid var(--line);color:var(--txt);font-family:var(--mono);font-size:16px;font-weight:700;border-radius:8px;padding:9px 10px;width:100%;-moz-appearance:textfield;font-variant-numeric:tabular-nums}
+  .nin input::-webkit-outer-spin-button,.nin input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .nin input:focus{outline:none;border-color:var(--power)}
+  .nin .roval{background:#10201e;border:1px solid #1f4a44;color:var(--power);font-family:var(--mono);font-size:16px;font-weight:700;border-radius:8px;padding:9px 10px;width:100%;font-variant-numeric:tabular-nums}
+  table.cmp input.dpcell{background:var(--elev);border:1px solid var(--line);color:var(--txt);font-family:var(--mono);font-size:14px;font-weight:700;border-radius:6px;padding:5px 6px;width:72px;text-align:right;-moz-appearance:textfield}
+  table.cmp input.dpcell::-webkit-outer-spin-button,table.cmp input.dpcell::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  table.cmp input.dpcell:focus{outline:none;border-color:var(--power)}
+  table.cmp tr.best td{background:rgba(45,212,191,0.14)}
+  .nin .u{font-size:12px;color:var(--dim);white-space:nowrap}
+  .ribig{display:flex;align-items:baseline;gap:10px;margin:14px 0 4px}
+  .ribig .n{font-family:var(--mono);font-size:46px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .ribig .lab{font-size:12px;color:var(--muted)}
+  .ribox{border-radius:12px;padding:13px 15px;margin-top:10px;border:1px solid;font-size:13px;line-height:1.6}
+  .ribox b{font-weight:700}
+  @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><div class="brand"><b>人工呼吸 &amp; Mechanical Power シミュレーター</b><span>GOTO ANESTHESIA TOOLKIT · VENTILATION</span></div>
+<div class="tabs" role="tablist">
+  <button id="tabBtnME" role="tab" aria-pressed="true" onclick="setTab('me')">患者評価（実測）</button>
+  <button id="tabBtnMP" role="tab" aria-pressed="false" onclick="setTab('mp')">換気・MP</button>
+  <button id="tabBtnRI" role="tab" aria-pressed="false" onclick="setTab('ri')">BEST PEEP</button>
+  <button id="tabBtnCO" role="tab" aria-pressed="false" onclick="setTab('co')">換気量・CO₂</button>
+</div></div></header>
+
+<main class="wrap">
+
+  <section id="tabMP" style="display:none">
+
+  <div class="card">
+    <h3>患者プリセット</h3>
+    <div class="chips" id="presets">
+      <button onclick="preset('normal',this)">正常肺</button>
+      <button onclick="preset('ards',this)">ARDS（中等症）</button>
+      <button onclick="preset('copd',this)">COPD・喘息</button>
+      <button onclick="preset('obese',this)">肥満・気腹</button>
+    </div>
+    <p class="note" id="presetNote" style="margin-top:10px">代表的な肺メカニクスと初期設定が入ります（教育用の目安値）。選んだ後にスライダーで微調整できます。</p>
+  </div>
+
+  <div class="card">
+    <h3>換気モード &amp; 設定</h3>
+    <div class="seg" role="group" aria-label="換気モード">
+      <button id="bVCV" aria-pressed="true" onclick="setMode('VCV')">VCV</button>
+      <button id="bPCV" aria-pressed="false" onclick="setMode('PCV')">PCV</button>
+    </div>
+
+    <div class="sliders">
+      <div class="sl" id="wrapVT">
+        <div class="top"><label for="vt">一回換気量 V<sub>T</sub></label><span class="v"><span id="vtV">450</span><small>mL</small></span></div>
+        <input id="vt" type="range" min="150" max="800" step="10" value="450" oninput="run()">
+      </div>
+      <div class="sl" id="wrapPd" style="display:none">
+        <div class="top"><label for="pd">吸気圧 ΔP<sub>set</sub>（PEEP上）</label><span class="v"><span id="pdV">15</span><small>cmH₂O</small></span></div>
+        <input id="pd" type="range" min="5" max="35" step="1" value="15" oninput="run()">
+      </div>
+      <div class="sl">
+        <div class="top"><label for="cmp">コンプライアンス C</label><span class="v"><span id="cmpV">50</span><small>mL/cmH₂O</small></span></div>
+        <input id="cmp" type="range" min="10" max="100" step="1" value="50" oninput="run()">
+      </div>
+      <div class="sl">
+        <div class="top"><label for="raw">気道抵抗 R<sub>aw</sub></label><span class="v"><span id="rawV">8</span><small>cmH₂O/L/s</small></span></div>
+        <input id="raw" type="range" min="2" max="25" step="1" value="8" oninput="run()">
+      </div>
+      <div class="sl">
+        <div class="top"><label for="rett">気管チューブ抵抗 R<sub>ETT</sub></label><span class="v"><span id="rettV">6</span><small>cmH₂O/L/s</small></span></div>
+        <input id="rett" type="range" min="0" max="20" step="1" value="6" oninput="run()">
+      </div>
+      <div class="sl">
+        <div class="top"><label for="rr">呼吸数 RR</label><span class="v"><span id="rrV">14</span><small>/min</small></span></div>
+        <input id="rr" type="range" min="6" max="35" step="1" value="14" oninput="run()">
+      </div>
+      <div class="sl">
+        <div class="top"><label for="peep">PEEP</label><span class="v"><span id="peepV">5</span><small>cmH₂O</small></span></div>
+        <input id="peep" type="range" min="0" max="20" step="1" value="5" oninput="run()">
+      </div>
+      <div class="sl">
+        <div class="top"><label for="ie">吸気:呼気 I:E</label><span class="v" id="ieV">1 : 2</span></div>
+        <input id="ie" type="range" min="0" max="4" step="1" value="2" oninput="run()">
+      </div>
+      <div class="sl" id="wrapPause">
+        <div class="top"><label for="pause">吸気ポーズ（T<sub>i</sub>比）</label><span class="v"><span id="pauseV">0</span><small>%</small></span></div>
+        <input id="pause" type="range" min="0" max="50" step="5" value="0" oninput="run()">
+      </div>
+      <div class="sl" id="wrapSI">
+        <div class="top"><label for="si">吸気中C変化（Stress Index）</label><span class="v" id="siV">1.00</span></div>
+        <input id="si" type="range" min="0.6" max="1.6" step="0.05" value="1" oninput="run()">
+      </div>
+    </div>
+
+    <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+      <span class="t" style="font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">ETT内径から R<sub>ETT</sub> 目安を入れる<span style="text-transform:none;letter-spacing:0">（数字＝概算抵抗 cmH₂O/L/s, 流量≈1 L/s時）</span></span>
+      <div class="chips" id="ettChips" style="margin-top:9px">
+        <button onclick="setEtt(3,this)">9.0 → 3</button>
+        <button onclick="setEtt(4,this)">8.5 → 4</button>
+        <button onclick="setEtt(5,this)">8.0 → 5</button>
+        <button onclick="setEtt(7,this)">7.5 → 7</button>
+        <button onclick="setEtt(10,this)">7.0 → 10</button>
+        <button onclick="setEtt(13,this)">6.5 → 13</button>
+        <button onclick="setEtt(18,this)">6.0 → 18</button>
+      </div>
+      <details class="refbox" style="margin-top:11px"><summary>ETT抵抗の早見表・出典</summary>
+        <table class="cmp" style="margin-top:8px;max-width:420px">
+          <thead><tr><th>内径 mm</th><th>R<sub>ETT</sub> 目安*</th><th>RohrerK₂†</th></tr></thead>
+          <tbody>
+            <tr><td>9.0</td><td>≈ 3</td><td>2.42</td></tr>
+            <tr><td>8.5</td><td>≈ 4</td><td>3.05</td></tr>
+            <tr><td>8.0</td><td>≈ 5</td><td>4.65</td></tr>
+            <tr><td>7.5</td><td>≈ 7</td><td>6.01</td></tr>
+            <tr><td>7.0</td><td>≈ 10</td><td>9.17</td></tr>
+            <tr><td>6.5</td><td>≈ 13</td><td>12.80</td></tr>
+            <tr><td>6.0</td><td>≈ 18‡</td><td>—</td></tr>
+          </tbody>
+        </table>
+        <p class="ref" style="margin-top:8px">*流量 ≈1 L/s（60 L/min）時の概算 [cmH₂O/L/s]。ETT抵抗は<b>流量依存</b>（R<sub>ETT</sub> = K₁ + K₂·流量、乱流のためK₂が支配的）で、流量・分泌物・屈曲で上昇する。本シミュレーターはR<sub>ETT</sub>を一定（線形）として扱うため、これは代表値の目安。 †K₂＝RohrerのK₂ [cmH₂O/(L/s)²]：<b>Flevari AG, et al.</b> Rohrer's constant K₂ as a factor determining inspiratory resistance of common adult endotracheal tubes. <i>Anaesth Intensive Care</i>. 2011;39(3):410-417。 ‡6.0は外挿（より細い径ではさらに急増）。</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="mpbox">
+      <span class="lab" id="mpLab">機械的パワー（P-Vループ積分）</span>
+      <div class="big"><span id="mpVal">—</span> <small>J/min</small></div>
+      <div class="thr" id="mpThr"></div>
+      <div class="mpbar" id="mpBar"><span style="background:var(--mp-el)"></span><span style="background:var(--mp-re)"></span><span style="background:var(--mp-pe)"></span></div>
+      <div class="mpleg">
+        <span><i style="background:var(--mp-el)"></i>弾性 <b id="mpEl">—</b></span>
+        <span><i style="background:var(--mp-re)"></i>抵抗 <b id="mpRe">—</b></span>
+        <span><i style="background:var(--mp-pe)"></i>PEEP <b id="mpPe">—</b></span>
+      </div>
+      <div class="surrogate" id="mpSurr">換算式(Gattinoni): — J/min</div>
+    </div>
+    <div class="srcbox">
+      <span class="t">パワー算出に用いる圧</span>
+      <div class="seg sm" role="group" aria-label="圧の選択">
+        <button id="sAir" aria-pressed="true" onclick="setSrc('air')">気道内圧</button>
+        <button id="sTr" aria-pressed="false" onclick="setSrc('tr')">気管内圧</button>
+      </div>
+      <span class="t">PEEP成分</span>
+      <div class="seg sm" role="group" aria-label="PEEP成分の扱い">
+        <button id="pIncl" aria-pressed="true" onclick="setPeep('incl')">含む</button>
+        <button id="pExcl" aria-pressed="false" onclick="setPeep('excl')">除外</button>
+      </div>
+      <p class="note" id="srcNote">気道内圧はETT抵抗成分を含む。<b>気管内圧</b>に切替えるとETT抵抗分が外れ肺に加わる真のパワーに近づく。<b>PEEP成分</b>＝PEEP×V<sub>T</sub> は正味の容量変位を生まないため「除外」できる（弾性＋抵抗のみのMPになる）。</p>
+    </div>
+  </div>
+
+  <div class="metrics" id="metrics"></div>
+
+  <div class="card">
+    <h3>設定の比較</h3>
+    <div class="chips">
+      <button id="snapBtn" onclick="snapA()">現在の設定をAに保存</button>
+      <button id="clearBtn" onclick="clearA()" style="display:none">クリア</button>
+    </div>
+    <div id="cmpWrap" style="display:none;margin-top:12px"></div>
+    <p class="note" id="cmpHint" style="margin-top:10px">「Aに保存」した後に設定を変えると、保存値(A)と現在値(B)の差分(Δ)が表で出ます。換気設定の<b>前後比較</b>に。</p>
+  </div>
+
+  <div class="card">
+    <h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">波形（圧 / 流量 / 容量）
+      <button id="annotBtn" class="miniToggle" aria-pressed="true" onclick="toggleAnnot()">圧カーブ注釈 ON</button></h3>
+    <canvas id="cwave" style="height:360px"></canvas>
+    <div class="legend">
+      <span style="color:var(--press)"><i style="background:var(--press)"></i>気道内圧</span>
+      <span style="color:var(--press)"><i class="dash"></i>気管内圧</span>
+      <span style="color:var(--flow)"><i style="background:var(--flow)"></i>流量</span>
+      <span style="color:var(--vol)"><i style="background:var(--vol)"></i>容量</span>
+    </div>
+    <div id="siBadge" class="note" style="margin-top:9px"></div>
+    <div id="expBadge" class="note" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h3>圧-容量ループ（網掛け＝吸気側パワー積分領域）</h3>
+    <canvas id="cloop" style="height:380px"></canvas>
+    <p class="note" style="margin-top:10px">吸気相のP-V曲線下面積 ×RR×0.0981 が機械的パワー(J/min)。網掛け部分は <b>弾性＋抵抗＋PEEP</b> の仕事の合計。<b>「PEEP除外」</b>にすると網掛け基準がP=0からPEEP線（青破線）に移り、PEEP成分の長方形が外れる。気管内圧に切替えるとETT抵抗分が外れ抵抗成分が縮む。</p>
+  </div>
+
+  <div class="card">
+    <h3>肺保護換気の目安（PBW → V<sub>T</sub>）</h3>
+    <div class="sliders" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="sl">
+        <div class="top"><label for="ht">身長</label><span class="v"><span id="htV">165</span><small>cm</small></span></div>
+        <input id="ht" type="range" min="140" max="195" step="1" value="165" oninput="pbw()">
+      </div>
+      <div class="sl" style="justify-content:flex-end">
+        <div class="seg sm" role="group" aria-label="性別">
+          <button id="sexM" aria-pressed="true" onclick="setSex('M')">男性</button>
+          <button id="sexF" aria-pressed="false" onclick="setSex('F')">女性</button>
+        </div>
+      </div>
+    </div>
+    <div class="pbwgrid">
+      <div class="m"><span class="l">予測体重 PBW</span><span class="n" id="pbwV">—</span><span class="u">kg</span></div>
+      <div class="m"><span class="l">6 mL/kg</span><span class="n" id="vt6">—</span><span class="u">mL</span></div>
+      <div class="m"><span class="l">8 mL/kg</span><span class="n" id="vt8">—</span><span class="u">mL</span></div>
+      <div class="m" style="display:flex;align-items:center;justify-content:center">
+        <button onclick="applyVT()" style="background:var(--power);color:#062b27;border:0;border-radius:9px;padding:9px 12px;font-weight:700;cursor:pointer;font-family:var(--ui);font-size:13px">6 mL/kgを反映</button>
+      </div>
+    </div>
+    <details class="refbox"><summary>文献</summary>
+      <p class="ref"><b>Gattinoni L, et al.</b> Ventilator-related causes of lung injury: the mechanical power. <i>Intensive Care Med</i>. 2016;42:1567-1575（MPの弾性/抵抗/PEEP分解）。／<b>Serpa Neto A, et al.</b> Mechanical power and postoperative pulmonary complications（閾値 ≈17 J/min の報告）<i>Intensive Care Med</i>. 2018. ／<b>Amato MBP, et al.</b> Driving pressure and survival in ARDS. <i>NEJM</i>. 2015;372:747-755（ΔP&gt;15 と予後）。／ PBW: ARDSNet（NEJM 2000）。気管内圧：Tritube/遠位圧測定の概念。</p>
+    </details>
+  </div>
+
+  </section>
+
+  <section id="tabRI" style="display:none">
+
+  <div class="card">
+    <h3>BEST PEEP：Recruitment-to-Inflation (R/I) ratio</h3>
+    <p class="note" style="margin-bottom:8px">PEEPを1段下げて「肺がどれだけ虚脱するか」からリクルータビリティを推定する single-breath 法。<b>VC・深鎮静/筋弛緩で自発呼吸なし</b>、各段階で<b>吸気ポーズ（ゼロ流量）でPplatを実測</b>するのが前提。</p>
+    <ol class="steps">
+      <li><b>高PEEP（例 15）</b>で安定 → <b>V<sub>T</sub></b> と <b>Pplat(高)</b> を記録</li>
+      <li>1呼吸で<b>低PEEP（例 5）</b>へ一気に下げ、その<b>1呼吸の呼気量 V<sub>exp</sub></b> を読む（PEEP差で余分に吐く分を含む）</li>
+      <li>低PEEPで安定 → <b>Pplat(低)</b> を記録</li>
+    </ol>
+    <div class="ngrid">
+      <div class="nin"><label for="riVT">一回換気量 V<sub>T</sub></label><div class="ip"><input id="riVT" type="number" inputmode="decimal" value="420" oninput="calcRI()"><span class="u">mL</span></div></div>
+      <div class="nin"><label for="riPh">高 PEEP</label><div class="ip"><input id="riPh" type="number" inputmode="decimal" value="15" oninput="calcRI()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="riPl">低 PEEP</label><div class="ip"><input id="riPl" type="number" inputmode="decimal" value="5" oninput="calcRI()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="riPpH">Pplat（高PEEP）</label><div class="ip"><input id="riPpH" type="number" inputmode="decimal" value="26" oninput="calcRI()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="riPpL">Pplat（低PEEP）</label><div class="ip"><input id="riPpL" type="number" inputmode="decimal" value="24" oninput="calcRI()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="riVexp">PEEP低下時の呼気量 V<sub>exp</sub></label><div class="ip"><input id="riVexp" type="number" inputmode="decimal" value="760" oninput="calcRI()"><span class="u">mL</span></div></div>
+    </div>
+
+    <div class="metrics" id="riOut" style="margin-top:16px;margin-bottom:0"></div>
+
+    <div class="ribig"><span class="n" id="riVal">—</span><span class="lab">R/I ratio<br>= C<sub>rec</sub> / C<sub>rs</sub>(低PEEP)</span></div>
+    <div class="ribox" id="riVerdict"></div>
+
+    <details class="refbox" style="margin-top:12px"><summary>計算式・文献</summary>
+      <p class="ref">ΔPEEP = PEEP高−低／ <b>C<sub>rs</sub>(低)</b> = V<sub>T</sub>/(Pplat低−PEEP低)／ 解放量 <b>ΔEELV</b> = V<sub>exp</sub>−V<sub>T</sub>／ <b>V<sub>rec</sub></b> = ΔEELV − C<sub>rs</sub>(低)×ΔPEEP／ <b>C<sub>rec</sub></b> = V<sub>rec</sub>/ΔPEEP／ <b>R/I = C<sub>rec</sub>/C<sub>rs</sub>(低)</b>。R/I ≥ 0.5 を高リクルータビリティとする。<br><b>Chen L, et al.</b> Potential for Lung Recruitment Estimated by the Recruitment-to-Inflation Ratio in ARDS. <i>Am J Respir Crit Care Med</i>. 2020;201(2):178-187.</p>
+    </details>
+  </div>
+
+  <div class="card">
+    <h3>Best PEEP：decremental PEEP trial（最良PEEP探索）</h3>
+    <p class="note" style="margin-bottom:10px">リクルートメント後、PEEPを高い方から段階的に下げ、各段で<b>V<sub>T</sub>一定のまま Pplat（吸気ホールド）</b>を記録。ΔP=Pplat−PEEP、C<sub>rs</sub>=V<sub>T</sub>/ΔP を各段で計算し、<b>最良コンプライアンス＝最小駆動圧</b>のPEEPを自動ハイライトします。</p>
+    <div class="ngrid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="nin"><label for="dpVT">一回換気量 V<sub>T</sub>（試験中一定）</label><div class="ip"><input id="dpVT" type="number" inputmode="decimal" value="450" oninput="calcDecPEEP()"><span class="u">mL</span></div></div>
+    </div>
+    <table class="cmp" style="margin-top:14px;max-width:480px">
+      <thead><tr><th>PEEP</th><th>Pplat</th><th>ΔP</th><th>C<sub>rs</sub></th></tr></thead>
+      <tbody>
+        <tr id="dpRow0"><td><input class="dpcell" id="dpPEEP0" type="number" value="16" oninput="calcDecPEEP()"></td><td><input class="dpcell" id="dpPplat0" type="number" value="28" oninput="calcDecPEEP()"></td><td id="dpDP0">—</td><td id="dpC0">—</td></tr>
+        <tr id="dpRow1"><td><input class="dpcell" id="dpPEEP1" type="number" value="14" oninput="calcDecPEEP()"></td><td><input class="dpcell" id="dpPplat1" type="number" value="25" oninput="calcDecPEEP()"></td><td id="dpDP1">—</td><td id="dpC1">—</td></tr>
+        <tr id="dpRow2"><td><input class="dpcell" id="dpPEEP2" type="number" value="12" oninput="calcDecPEEP()"></td><td><input class="dpcell" id="dpPplat2" type="number" value="22" oninput="calcDecPEEP()"></td><td id="dpDP2">—</td><td id="dpC2">—</td></tr>
+        <tr id="dpRow3"><td><input class="dpcell" id="dpPEEP3" type="number" value="10" oninput="calcDecPEEP()"></td><td><input class="dpcell" id="dpPplat3" type="number" value="19" oninput="calcDecPEEP()"></td><td id="dpDP3">—</td><td id="dpC3">—</td></tr>
+        <tr id="dpRow4"><td><input class="dpcell" id="dpPEEP4" type="number" value="8" oninput="calcDecPEEP()"></td><td><input class="dpcell" id="dpPplat4" type="number" value="18" oninput="calcDecPEEP()"></td><td id="dpDP4">—</td><td id="dpC4">—</td></tr>
+        <tr id="dpRow5"><td><input class="dpcell" id="dpPEEP5" type="number" value="6" oninput="calcDecPEEP()"></td><td><input class="dpcell" id="dpPplat5" type="number" value="18" oninput="calcDecPEEP()"></td><td id="dpDP5">—</td><td id="dpC5">—</td></tr>
+      </tbody>
+    </table>
+    <div class="ribox" id="dpResult" style="margin-top:12px"></div>
+    <details class="refbox" style="margin-top:12px"><summary>考え方・文献</summary>
+      <p class="ref">リクルートメント後にPEEPを下げ、<b>静的コンプライアンスが最大（＝駆動圧が最小）</b>になるPEEPを最良とする（過膨張と虚脱の境目）。<b>Suter PM, et al.</b> Optimum end-expiratory airway pressure. <i>NEJM</i>. 1975。駆動圧最小化と予後：<b>Amato MBP, et al.</b> <i>NEJM</i>. 2015。実務では開放維持のため「最良点 +2 cmH₂O」を選ぶ流儀もある。V<sub>T</sub>は試験中一定に。</p>
+    </details>
+  </div>
+
+  </section>
+
+  <section id="tabME">
+
+  <div class="card">
+    <h3>実測モード：患者の換気メカニクス推定</h3>
+    <p class="note" style="margin-bottom:10px">麻酔器の<b>表示値を入力</b>すれば、自動測定がなくても 気道抵抗 R・コンプライアンス C・駆動圧・auto-PEEP・時定数・MP を推定します。<b>VC（定常流）・自発呼吸なし</b>が前提。Pplatは<b>吸気ホールド</b>、total PEEPは<b>呼気ホールド</b>で読みます（total PEEP空欄なら設定PEEPとみなしauto-PEEP=0）。</p>
+
+    <div style="margin-bottom:16px">
+      <span class="t" style="font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">体格（身長→理想体重 PBW・V<sub>T</sub>/kg）</span>
+      <div class="seg sm" role="group" aria-label="性別" style="margin:10px 0 0"><button id="meSexM" aria-pressed="true" onclick="setMeSex('M')">男性</button><button id="meSexF" aria-pressed="false" onclick="setMeSex('F')">女性</button></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:11px">
+        <div class="nin"><label for="meHt">身長</label><div class="ip"><input id="meHt" type="number" inputmode="decimal" value="165" oninput="calcMeasure()"><span class="u">cm</span></div></div>
+        <div class="nin"><label>理想体重 PBW</label><div class="ip"><div class="roval"><span id="meHtPbw">—</span></div><span class="u">kg</span></div></div>
+      </div>
+    </div>
+
+    <div class="ngrid">
+      <div class="nin"><label for="meVT">換気量 V<sub>T</sub></label><div class="ip"><input id="meVT" type="number" inputmode="decimal" value="500" oninput="calcMeasure()"><span class="u">mL</span></div></div>
+      <div class="nin"><label for="meFlow">吸気フロー（定常流）</label><div class="ip"><input id="meFlow" type="number" inputmode="decimal" value="40" oninput="calcMeasure()"><span class="u">L/min</span></div></div>
+      <div class="nin"><label for="meRR">呼吸数 RR</label><div class="ip"><input id="meRR" type="number" inputmode="decimal" value="14" oninput="calcMeasure()"><span class="u">/min</span></div></div>
+      <div class="nin"><label for="meIE">吸気:呼気 I:E</label><div class="ip"><select id="meIE" onchange="calcMeasure()" style="width:100%"><option>1:1</option><option>1:1.5</option><option selected>1:2</option><option>1:2.5</option><option>1:3</option><option>1:4</option></select></div></div>
+      <div class="nin"><label for="mePause">吸気ポーズ（T<sub>i</sub>比）</label><div class="ip"><input id="mePause" type="number" inputmode="decimal" value="0" oninput="calcMeasure()"><span class="u">%</span></div></div>
+      <div class="nin"><label for="mePpk">Ppeak（最高気道内圧）</label><div class="ip"><input id="mePpk" type="number" inputmode="decimal" value="21" oninput="calcMeasure()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="mePpl">Pplat（吸気ホールド）</label><div class="ip"><input id="mePpl" type="number" inputmode="decimal" value="15" oninput="calcMeasure()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="mePEEP">設定 PEEP</label><div class="ip"><input id="mePEEP" type="number" inputmode="decimal" value="5" oninput="calcMeasure()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="meTotPEEP">total PEEP（呼気ホールド・任意）</label><div class="ip"><input id="meTotPEEP" type="number" inputmode="decimal" value="5" oninput="calcMeasure()"><span class="u">cmH₂O</span></div></div>
+    </div>
+    <div style="margin-top:11px"><button class="miniToggle" style="text-transform:none" onclick="meCalcFlow()">↻ V<sub>T</sub>・RR・I:E・ポーズから吸気フローを計算</button></div>
+
+    <div class="mpbox" style="margin-top:16px">
+      <span class="lab">推定 機械的パワー（簡易式 0.098·RR·V<sub>T</sub>·(Ppeak−½ΔP)）</span>
+      <div class="big"><span id="meMpVal">—</span> <small>J/min</small></div>
+      <div class="thr" id="meMpThr"></div>
+      <div class="mpbar" id="meMpBar"><span style="background:var(--mp-el)"></span><span style="background:var(--mp-re)"></span><span style="background:var(--mp-pe)"></span></div>
+      <div class="mpleg">
+        <span><i style="background:var(--mp-el)"></i>弾性 <b id="meMpEl">—</b></span>
+        <span><i style="background:var(--mp-re)"></i>抵抗 <b id="meMpRe">—</b></span>
+        <span><i style="background:var(--mp-pe)"></i>PEEP <b id="meMpPe">—</b></span>
+      </div>
+    </div>
+
+    <div class="metrics" id="meOut" style="margin-top:14px;margin-bottom:0"></div>
+    <div class="ribox" id="meVerdict" style="margin-top:12px"></div>
+
+    <details class="refbox" style="margin-top:12px"><summary>吸気フローを変えると何が分かる？／計算式</summary>
+      <p class="ref"><b>フローを変えるとPpeakは変わる（抵抗成分）がPplatは変わらない（弾性成分）</b>のが鍵。定常流VCVでは Ppeak = Pplat + フロー×R。だから：<br>
+      ・<b>R（気道+ETT抵抗）= (Ppeak − Pplat) / 吸気フロー</b>［フローは L/s に換算］<br>
+      ・<b>C（静的コンプライアンス）= V<sub>T</sub> / (Pplat − total PEEP)</b><br>
+      ・<b>駆動圧 ΔP = Pplat − total PEEP</b>／ <b>auto-PEEP = total PEEP − 設定PEEP</b>／ <b>時定数 τ = R×C</b><br>
+      ・<b>MP ≈ 0.098×RR×V<sub>T</sub>×(Ppeak − ½ΔP)</b>（簡易式。PEEP/弾性/抵抗に分解可）。<br>
+      フローを上げるとPpeak↑（抵抗ぶん）だが吸気時間が短縮→呼気時間が延びて auto-PEEP は減る、というトレードオフ。</p>
+    </details>
+  </div>
+
+  <div class="card">
+    <h3>プラトーが取れない時：吸気フロー2点法で R を推定</h3>
+    <p class="note" style="margin-bottom:10px">同じV<sub>T</sub>で<b>吸気フローだけ2通り</b>に変え、それぞれのPpeakを読む。差は<b>抵抗成分だけ</b>（Pplatはフロー非依存）。<b>R = (Ppeak₂ − Ppeak₁)/(フロー₂ − フロー₁)</b>。ホールド無しでも気道抵抗が出せます。</p>
+    <div class="ngrid">
+      <div class="nin"><label for="me2f1">フロー₁</label><div class="ip"><input id="me2f1" type="number" inputmode="decimal" value="40" oninput="calc2flow()"><span class="u">L/min</span></div></div>
+      <div class="nin"><label for="me2p1">Ppeak₁</label><div class="ip"><input id="me2p1" type="number" inputmode="decimal" value="21" oninput="calc2flow()"><span class="u">cmH₂O</span></div></div>
+      <div class="nin"><label for="me2f2">フロー₂</label><div class="ip"><input id="me2f2" type="number" inputmode="decimal" value="60" oninput="calc2flow()"><span class="u">L/min</span></div></div>
+      <div class="nin"><label for="me2p2">Ppeak₂</label><div class="ip"><input id="me2p2" type="number" inputmode="decimal" value="24" oninput="calc2flow()"><span class="u">cmH₂O</span></div></div>
+    </div>
+    <div class="ribig"><span class="n" id="me2fVal">—</span><span class="lab">推定 R<br>= ΔPpeak / Δフロー</span></div>
+    <div class="ribox" id="me2fNote"></div>
+  </div>
+
+  </section>
+
+  <section id="tabCO" style="display:none">
+
+  <div class="card">
+    <h3>換気量・CO₂ 管理</h3>
+    <p class="note" style="margin-bottom:10px">分時・肺胞換気量と死腔を出し、<b>目標EtCO₂にするためのRR / V<sub>T</sub></b>を逆算します。許容性高炭酸時の<b>pH推定</b>も。原理：PaCO₂ ∝ 1 / 肺胞換気量（CO₂産生量一定の仮定）。</p>
+    <div class="ngrid">
+      <div class="nin"><label for="coVT">一回換気量 V<sub>T</sub></label><div class="ip"><input id="coVT" type="number" inputmode="decimal" value="450" oninput="calcCO2()"><span class="u">mL</span></div></div>
+      <div class="nin"><label for="coRR">呼吸数 RR</label><div class="ip"><input id="coRR" type="number" inputmode="decimal" value="12" oninput="calcCO2()"><span class="u">/min</span></div></div>
+      <div class="nin"><label for="coEt">現在の EtCO₂</label><div class="ip"><input id="coEt" type="number" inputmode="decimal" value="45" oninput="calcCO2()"><span class="u">mmHg</span></div></div>
+      <div class="nin"><label for="coTgt">目標 EtCO₂</label><div class="ip"><input id="coTgt" type="number" inputmode="decimal" value="40" oninput="calcCO2()"><span class="u">mmHg</span></div></div>
+    </div>
+
+    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+      <span class="t" style="font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">死腔（体格 ＋ 使用デバイス）</span>
+      <div class="ngrid" style="margin-top:9px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <div class="nin"><label for="coWt">体重</label><div class="ip"><input id="coWt" type="number" inputmode="decimal" value="65" oninput="calcCO2()"><span class="u">kg</span></div></div>
+        <div class="nin"><label for="coDev">気道デバイス</label><div class="ip"><select id="coDev" onchange="calcCO2()" style="width:100%"><option value="ett">気管挿管 ETT</option><option value="sga">声門上器具 SGA</option><option value="mask">フェイスマスク</option></select></div></div>
+        <div class="nin"><label for="coApp">器具死腔（HME・マウント等）</label><div class="ip"><input id="coApp" type="number" inputmode="decimal" value="60" oninput="calcCO2()"><span class="u">mL</span></div></div>
+      </div>
+      <div class="chips" style="margin-top:9px">
+        <button onclick="coAddApp(50)">＋HME 50</button>
+        <button onclick="coAddApp(30)">＋マウント 30</button>
+        <button onclick="coAddApp(10)">＋エルボ 10</button>
+        <button onclick="coSetApp(0)">クリア</button>
+      </div>
+      <details class="refbox" style="margin-top:10px"><summary>死腔の目安（体格・デバイス・回路部品）</summary>
+        <p class="ref"><b>解剖学的死腔</b> ≈ 2 mL/kg（≈150 mL/70kg）。<b>気管挿管/気管切開は上気道をバイパス</b>し約半分に減る（本ツールは ETT=1.0・SGA=2.0・マスク=2.2 mL/kg で概算）。<br><b>器具死腔</b>（Y字より患者側・吸気/呼気が両方向に流れる部分）の目安：HME/HMEF 成人標準 <b>~50 mL</b>（小型 ~25／大型 ~100）、カテーテルマウント <b>25–60 mL</b>（小型 ~12）、L字/エルボ <b>~10 mL</b>、フェイスマスク（成人）<b>~100–200 mL</b>。小児はHMEFの死腔が相対的に大きく要注意。<br>出典: Geeky Medics／Airway Jedi／Miller AGS, et al. <i>Anaesthesia</i> 2004（小児）。</p>
+      </details>
+    </div>
+
+    <div class="metrics" id="coOut" style="margin-top:16px;margin-bottom:0"></div>
+    <div class="ribox" id="coVerdict" style="margin-top:12px"></div>
+
+    <details class="refbox" style="margin-top:12px"><summary>計算式・注意</summary>
+      <p class="ref">分時換気量 MV = V<sub>T</sub>×RR／ <b>合計死腔 V<sub>D</sub> = 解剖学的死腔（デバイス依存係数×体重）＋ 器具死腔</b>／ 肺胞換気量 VA = (V<sub>T</sub>−V<sub>D</sub>)×RR。<br>目標RR（V<sub>T</sub>一定）= 現RR×(現EtCO₂ / 目標EtCO₂)／ 目標V<sub>T</sub>（RR一定）= V<sub>D</sub>+(V<sub>T</sub>−V<sub>D</sub>)×(現EtCO₂ / 目標EtCO₂)。<br>pH ≈ 7.40 − 0.008×(PaCO₂−40)（急性呼吸性アシドーシスの目安）。<b>EtCO₂はPaCO₂より2〜5 mmHg低く</b>、死腔増大・低心拍出でさらに乖離。CO₂産生・代謝性要素は加味しない概算。</p>
+    </details>
+  </div>
+
+  </section>
+
+  <div class="disc"><b>注意：</b>単一コンパートメント・線形モデルによる教育/概念検討用シミュレーションです。実機の波形・実測パワー・個々の患者病態を代替しません。R/I ratio・実測モードは入力値に基づく推定で、自発呼吸の残存・リーク・流量未平衡・非定常流があると誤差を生みます。設定値・閾値は施設プロトコルと最新文献で確認してください。</div>
+</main>
+
+<script>
+  var mode='VCV', src='air', sex='M', peepMode='incl', annot=true, meSex='M';
+  var IE=[[1,1],[1,1.5],[1,2],[1,3],[1,4]];
+
+  function $(id){return document.getElementById(id);}
+  function fmt(v,d){d=d||0;return (Math.abs(v)<0.05&&d===0)?'0':v.toFixed(d);}
+  function setBtn(id,on){$(id).setAttribute('aria-pressed',on);}
+
+  function setMode(m){
+    mode=m;
+    setBtn('bVCV',m==='VCV');setBtn('bPCV',m==='PCV');
+    $('wrapVT').style.display=(m==='PCV')?'none':'flex';
+    $('wrapPd').style.display=(m==='PCV')?'flex':'none';
+    $('wrapPause').style.display=(m==='VCV')?'flex':'none';
+    $('wrapSI').style.display=(m==='VCV')?'flex':'none';
+    run();
+  }
+  function toggleAnnot(){ annot=!annot; setBtn('annotBtn',annot); $('annotBtn').textContent='圧カーブ注釈 '+(annot?'ON':'OFF'); run(); }
+  function setTab(t){
+    $('tabMP').style.display=(t==='mp')?'':'none';
+    $('tabRI').style.display=(t==='ri')?'':'none';
+    $('tabME').style.display=(t==='me')?'':'none';
+    $('tabCO').style.display=(t==='co')?'':'none';
+    setBtn('tabBtnMP',t==='mp'); setBtn('tabBtnRI',t==='ri'); setBtn('tabBtnME',t==='me'); setBtn('tabBtnCO',t==='co');
+    if(t==='mp') run();            // 再描画（隠れている間にリサイズされても整う）
+    if(t==='me'){ calcMeasure(); calc2flow(); }
+    if(t==='ri') calcDecPEEP();
+    if(t==='co') calcCO2();
+    window.scrollTo(0,0);
+  }
+  function setSrc(s){src=s;setBtn('sAir',s==='air');setBtn('sTr',s==='tr');run();}
+  function setPeep(p){peepMode=p;setBtn('pIncl',p==='incl');setBtn('pExcl',p==='excl');run();}
+  function setSex(s){sex=s;setBtn('sexM',s==='M');setBtn('sexF',s==='F');pbw();}
+  function setEtt(r,btn){
+    $('rett').value=r; $('rettV').textContent=r;
+    var b=$('ettChips').querySelectorAll('button'); for(var i=0;i<b.length;i++)b[i].setAttribute('aria-pressed',b[i]===btn);
+    run();
+  }
+  function mpDisplayed(R){ return (peepMode==='excl') ? (R.MPel+R.MPres) : R.MP; }
+
+  // ---------- presets ----------
+  var PRESETS={
+    normal:{label:'正常肺',mode:'VCV',vt:450,cmp:50,raw:8,rett:6,rr:12,peep:5,ie:2,pause:0,
+            note:'正常肺の目安。C 50・R低め・PEEP 5。'},
+    ards:  {label:'ARDS（中等症）',mode:'VCV',vt:380,cmp:30,raw:10,rett:6,rr:22,peep:12,ie:2,pause:10,
+            note:'低コンプライアンス(C 30)・高PEEP(12)・低VT(≈6mL/kg)・高RR。駆動圧とMPに注目。'},
+    copd:  {label:'COPD・喘息',mode:'VCV',vt:480,cmp:55,raw:22,rett:6,rr:10,peep:5,ie:4,pause:0,
+            note:'高気道抵抗(R 22)。呼気を長く(I:E 1:4)・低RRで auto-PEEP/ガストラップを避ける発想。抵抗成分のMPが増える。'},
+    obese: {label:'肥満・気腹',mode:'VCV',vt:450,cmp:35,raw:9,rett:6,rr:14,peep:10,ie:2,pause:0,
+            note:'胸壁コンプライアンス低下(C 35)＋高PEEP(10)。気腹・頭低位での換気の目安。'}
+  };
+  function preset(key,btn){
+    var p=PRESETS[key]; if(!p)return;
+    $('vt').value=p.vt; $('cmp').value=p.cmp; $('raw').value=p.raw; $('rett').value=p.rett;
+    $('rr').value=p.rr; $('peep').value=p.peep; $('ie').value=p.ie; $('pause').value=p.pause;
+    $('si').value=1;
+    var btns=$('presets').querySelectorAll('button');
+    for(var i=0;i<btns.length;i++)btns[i].setAttribute('aria-pressed', btns[i]===btn);
+    $('presetNote').innerHTML='<b>'+p.label+'</b>：'+p.note;
+    setMode(p.mode); // calls run()
+  }
+
+  // ---------- physics (VCV / PCV, single-compartment linear) ----------
+  function simulate(){
+    var C=Number($('cmp').value)/1000;          // L/cmH2O
+    var Raw=Number($('raw').value), Rett=Number($('rett').value), Rtot=Raw+Rett;
+    var RR=Number($('rr').value), PEEP=Number($('peep').value);
+    var ieR=IE[Number($('ie').value)], Tc=60/RR, Ti=Tc*ieR[0]/(ieR[0]+ieR[1]), Te=Tc-Ti;
+    var VTset=Number($('vt').value)/1000, Pset=Number($('pd').value);
+    var tau=Rtot*C;
+    var pauseFrac=(mode==='VCV')?(Number($('pause').value)/100):0;
+    var siExp=(mode==='VCV')?Number($('si').value):1;   // Stress Index（吸気中の弾性カーブの凹凸）
+    var N=1600, dt=Tc/N, data=[], VTach=VTset;
+
+    if(mode==='PCV'){ VTach = C*Pset*(1-Math.exp(-Ti/tau)); }
+
+    // auto-PEEP（不完全呼気・ガストラップ）の定常状態推定：呼気終末に残る trapped 容量 Vee
+    var expF=Math.exp(-Te/tau);
+    var Vee=VTach*expF/(1-expF);
+    var autoPEEP=Vee/C;
+    if(mode==='PCV'){                         // PCVはauto-PEEP分だけ駆動圧が減りVTが落ちる（1回補正）
+      VTach=C*Math.max(Pset-autoPEEP,0)*(1-Math.exp(-Ti/tau));
+      Vee=VTach*expF/(1-expF); autoPEEP=Vee/C;
+    }
+    var totalPEEP=PEEP+autoPEEP;
+
+    for(var i=0;i<=N;i++){
+      var t=i*dt, vol,flow,palv,paw,ptr;
+      if(t<=Ti){ // inspiration
+        if(mode==='VCV'){
+          var Tif=Ti*(1-pauseFrac);
+          if(t<=Tif){ var Qiv=VTset/Tif; vol=Qiv*t; flow=Qiv; }
+          else { vol=VTset; flow=0; }              // 吸気ポーズ：無流量で容量保持
+          // 弾性圧は容量依存（線形=SI1、上に凸=過膨張SI>1、下に凸=リクルートSI<1）。Pplatは不変。
+          var pel=(VTset/C)*Math.pow(vol/VTset, siExp);
+          palv=PEEP+autoPEEP+pel; paw=palv+Rtot*flow; ptr=palv+Raw*flow;
+        }else{ // PCV
+          var drv=Math.max(Pset-autoPEEP,0);
+          vol=C*drv*(1-Math.exp(-t/tau)); flow=(drv/Rtot)*Math.exp(-t/tau);
+          palv=PEEP+autoPEEP+vol/C; paw=PEEP+Pset; ptr=palv+Raw*flow;
+        }
+      }else{ // expiration（不完全呼気を含む定常状態：終末に Vee 残る）
+        var te=t-Ti;
+        var Vabs=(Vee+VTach)*Math.exp(-te/tau);   // FRC上の絶対容量
+        vol=Vabs-Vee; if(vol<0)vol=0;             // 表示は一回換気量（終末で≈0に戻る）
+        flow=-((Vee+VTach)/tau)*Math.exp(-te/tau);// 終末で 0 に戻らない＝auto-PEEPのサイン
+        palv=PEEP+Vabs/C; paw=palv+Rtot*flow; ptr=palv+Raw*flow;
+      }
+      data.push({t:t,vol:vol,flow:flow,palv:palv,paw:paw,ptr:ptr});
+    }
+
+    // metrics
+    var Pplat=totalPEEP+VTach/C, dP=VTach/C;   // 駆動圧ΔP = Pplat − total PEEP
+    var Ppeak_air=-1e9, Ppeak_tr=-1e9;
+    for(var z=0;z<data.length;z++){ if(data[z].t<=Ti){ if(data[z].paw>Ppeak_air)Ppeak_air=data[z].paw; if(data[z].ptr>Ppeak_tr)Ppeak_tr=data[z].ptr; } }
+    var Pmean=0; for(var k=0;k<data.length;k++)Pmean+=data[k].paw; Pmean/=data.length;
+
+    // mechanical power via inspiratory integral of chosen pressure (referenced to 0)
+    var key=(src==='air')?'paw':'ptr';
+    var Wtot=0;
+    for(var j=1;j<data.length;j++){
+      if(data[j].t<=Ti){ var dV=data[j].vol-data[j-1].vol; var Pm=(data[j][key]+data[j-1][key])/2; Wtot+=Pm*dV; }
+    }
+    // component decomposition (cmH2O·L/breath): elastic = ∫Pel dV = ΔP·VT/(SI+1), PEEP = totalPEEP·VT, resistive = remainder
+    var Wpeep=totalPEEP*VTach, Welast=dP*VTach/(siExp+1), Wres=Wtot-Wpeep-Welast; if(Wres<0)Wres=0;
+    var kf=0.0981*RR;
+    var MP=Wtot*kf, MPel=Welast*kf, MPpeep=Wpeep*kf, MPres=Wres*kf;
+
+    // surrogate (Gattinoni simplified) with chosen Ppeak
+    var Ppk=(src==='air')?Ppeak_air:Ppeak_tr;
+    var MPs = 0.098*RR*VTach*(Ppk-0.5*dP);
+
+    // Stress Index を圧カーブから実測（定常流の弾性成分を log-log フィット: ln pel = ln a + b·ln t）
+    var bfit=siExp;
+    if(mode==='VCV'){
+      var Tif2=Ti*(1-pauseFrac), sx=0,sy=0,sxx=0,sxy=0,nf=0;
+      for(var m=1;m<data.length;m++){
+        var tt=data[m].t;
+        if(tt>1e-3 && tt<Tif2*0.97){
+          var peM=data[m].paw-(PEEP+autoPEEP)-Rtot*data[m].flow;   // 弾性成分のみ
+          if(peM>1e-3){ var lx=Math.log(tt), ly=Math.log(peM); sx+=lx;sy+=ly;sxx+=lx*lx;sxy+=lx*ly;nf++; }
+        }
+      }
+      if(nf>3){ var den=nf*sxx-sx*sx; if(Math.abs(den)>1e-9) bfit=(nf*sxy-sx*sy)/den; }
+    }
+
+    return {data:data,Tc:Tc,Ti:Ti,Te:Te,tau:tau,RR:RR,PEEP:PEEP,Pplat:Pplat,dP:dP,si:siExp,bfit:bfit,
+            autoPEEP:autoPEEP,totalPEEP:totalPEEP,Vee:Vee*1000,
+            Ppeak_air:Ppeak_air,Ppeak_tr:Ppeak_tr,Pmean:Pmean,VTach:VTach,
+            MV:VTach*RR,MP:MP,MPel:MPel,MPres:MPres,MPpeep:MPpeep,MPs:MPs,C:C*1000,key:key};
+  }
+
+  // ---------- drawing ----------
+  function dpiSetup(cv){
+    var ratio=window.devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight;
+    cv.width=Math.round(w*ratio); cv.height=Math.round(h*ratio); var ctx=cv.getContext('2d'); ctx.setTransform(ratio,0,0,ratio,0,0);
+    return {ctx:ctx,w:w,h:h};
+  }
+  function niceRange(min,max){ if(max-min<1e-6){max=min+1;} var pad=(max-min)*0.12; return [min-pad,max+pad]; }
+  function getMono(){return 'ui-monospace,Menlo,Consolas,monospace';}
+
+  function drawWave(R){
+    var cv=$('cwave'); var s=dpiSetup(cv), ctx=s.ctx, W=s.w, H=s.h;
+    if(W<2)return;                 // タブ非表示中（幅0）はスキップ
+    ctx.clearRect(0,0,W,H);
+    var padL=46,padR=12,padT=10,padB=22, plotW=W-padL-padR;
+    var rows=3, gap=10, rowH=(H-padT-padB-gap*(rows-1))/rows;
+    var d=R.data, Tc=R.Tc, reps=2, totalT=Tc*reps;
+
+    function xOf(t){return padL+(t/totalT)*plotW;}
+    function panel(idx,vals2,opt){
+      var y0=padT+idx*(rowH+gap), y1=y0+rowH;
+      ctx.fillStyle='#0a0f18'; ctx.fillRect(padL,y0,plotW,rowH);
+      ctx.strokeStyle='#1b2740'; ctx.lineWidth=1; ctx.strokeRect(padL,y0,plotW,rowH);
+      var allv=[]; vals2.forEach(function(v){allv=allv.concat(v.arr);});
+      var mn=Math.min.apply(null,allv), mx=Math.max.apply(null,allv);
+      var rr=niceRange(Math.min(mn,opt.floor0?0:mn), mx);
+      if(opt.floor0)rr[0]=0;
+      var yOf=function(val){return y1-((val-rr[0])/(rr[1]-rr[0]))*rowH;};
+      // faint mid gridline + zero line
+      ctx.strokeStyle='#121b2e';ctx.setLineDash([]);ctx.beginPath();ctx.moveTo(padL,(y0+y1)/2);ctx.lineTo(padL+plotW,(y0+y1)/2);ctx.stroke();
+      if(rr[0]<0&&rr[1]>0){ctx.strokeStyle='#27365230';ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(padL,yOf(0));ctx.lineTo(padL+plotW,yOf(0));ctx.stroke();ctx.setLineDash([]);}
+      // cycle boundary markers (Ti within each cycle)
+      ctx.strokeStyle='#1b274080';ctx.setLineDash([2,4]);
+      for(var rr2=0;rr2<reps;rr2++){var xb=xOf(rr2*Tc+R.Ti);ctx.beginPath();ctx.moveTo(xb,y0);ctx.lineTo(xb,y1);ctx.stroke();}
+      ctx.setLineDash([]);
+      // labels: unit (top-left), max & min
+      ctx.fillStyle='#93a1b8';ctx.font='11px '+getMono();ctx.textAlign='left';ctx.textBaseline='top';
+      ctx.fillText(opt.label,padL+5,y0+4);
+      ctx.textAlign='right';ctx.fillStyle='#5d6b85';
+      ctx.fillText(fmt(rr[1],0),padL-5,y0+2);
+      ctx.textBaseline='bottom'; ctx.fillText(fmt(rr[0],0),padL-5,y1-2);
+      // traces (repeat cycle)
+      vals2.forEach(function(v){
+        ctx.strokeStyle=v.color; ctx.lineWidth=v.w||2; if(v.dash)ctx.setLineDash([5,4]);else ctx.setLineDash([]);
+        ctx.beginPath();
+        for(var r=0;r<reps;r++){
+          for(var i=0;i<d.length;i++){
+            var t=d[i].t+r*Tc; var px=xOf(t), py=yOf(v.arr[i]);
+            if(i===0&&r===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+          }
+        }
+        ctx.stroke(); ctx.setLineDash([]);
+      });
+      if(opt.annotate) opt.annotate(yOf,padL,padL+plotW,y0,y1);
+    }
+    // 圧カーブ注釈：Ppeak / Pplat / PEEP の水平線とラベル＋抵抗(Ppeak−Pplat)・駆動圧(Pplat−PEEP)の差
+    function pAnnotate(yOf,x0,x1,y0,y1){
+      if(!annot)return;
+      var Ppk=R.Ppeak_air, Ppl=R.Pplat, Pep=R.PEEP;
+      function hl(val,col){var y=yOf(val);if(y<y0-1||y>y1+1)return null;ctx.strokeStyle=col;ctx.setLineDash([2,3]);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();ctx.setLineDash([]);return y;}
+      var yPk=hl(Ppk,'rgba(245,165,36,0.5)'), yPl=hl(Ppl,'rgba(127,217,205,0.55)'), yEp=hl(Pep,'rgba(56,189,248,0.55)');
+      ctx.font='9px '+getMono();ctx.textAlign='right';ctx.textBaseline='middle';
+      function lab(y,txt,col){if(y==null)return;ctx.fillStyle=col;ctx.fillText(txt,x1-4,y);}
+      lab(yPk,'Ppeak '+fmt(Ppk,0),'#f5b85a');
+      if(yPk!=null&&yPl!=null&&(yPl-yPk)>13) lab((yPk+yPl)/2,'↕ 抵抗 '+fmt(Ppk-Ppl,0),'#d2ab78');
+      lab(yPl,'Pplat '+fmt(Ppl,0),'#8fe0d3');
+      var trap=(R.autoPEEP>=0.5);
+      var yTP=trap?yOf(R.totalPEEP):yEp;
+      // 駆動圧 ΔP = Pplat − total PEEP（auto-PEEPがあると見かけ Pplat−設定PEEP より小さい）
+      if(yPl!=null&&yTP!=null&&(yTP-yPl)>13) lab((yPl+yTP)/2,'↕ ΔP '+fmt(R.dP,0),'#8fe0d3');
+      lab(yEp,'PEEP '+fmt(Pep,0),'#7cc7f0');
+      if(trap){   // 呼気ホールド相当：肺胞内圧の終末＝total PEEP（auto-PEEP分だけ設定PEEPより高い）
+        hl(R.totalPEEP,'rgba(239,68,68,0.6)');
+        ctx.textAlign='left';ctx.fillStyle='#ef8a8a';ctx.fillText('total PEEP '+fmt(R.totalPEEP,0),x0+5,yTP);ctx.textAlign='right';
+        if(yEp!=null&&(yEp-yTP)>13) lab((yTP+yEp)/2,'↕ auto '+fmt(R.autoPEEP,1),'#ef8a8a');
+      }
+    }
+    // 流量パネル注釈：呼気終末流量が 0 に戻らない＝auto-PEEP/ガストラップ
+    function fAnnotate(yOf,x0,x1,y0,y1){
+      if(!annot)return;
+      var ef=d[d.length-1].flow*60;   // 呼気終末流量 L/min（負）
+      if(R.autoPEEP>=0.5 && ef<-1){
+        var y=yOf(ef);
+        ctx.strokeStyle='rgba(239,68,68,0.6)';ctx.setLineDash([3,3]);ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();ctx.setLineDash([]);
+        ctx.fillStyle='#ef8a8a';ctx.font='9px '+getMono();ctx.textAlign='right';ctx.textBaseline='bottom';
+        ctx.fillText('呼気終末流量≠0 → ガストラップ',x1-4,y-2);
+      }
+    }
+    var pawArr=d.map(function(p){return p.paw;}), ptrArr=d.map(function(p){return p.ptr;});
+    var flowArr=d.map(function(p){return p.flow*60;}); // L/min
+    var volArr=d.map(function(p){return p.vol*1000;}); // mL
+    panel(0,[{arr:pawArr,color:'#f5a524',w:2},{arr:ptrArr,color:'#f5a524',w:1.6,dash:true}],{label:'圧 cmH₂O',floor0:false,annotate:pAnnotate});
+    panel(1,[{arr:flowArr,color:'#34d399',w:2}],{label:'流量 L/min',floor0:false,annotate:fAnnotate});
+    panel(2,[{arr:volArr,color:'#38bdf8',w:2}],{label:'容量 mL',floor0:true});
+    // x axis ticks
+    ctx.fillStyle='#6c7b95';ctx.font='10px '+getMono();ctx.textAlign='center';ctx.textBaseline='top';
+    for(var c=0;c<=reps;c++){var t=c*Tc;ctx.fillText(fmt(t,1)+'s',xOf(t),H-padB+4);}
+  }
+
+  function drawLoop(R){
+    var cv=$('cloop'); var s=dpiSetup(cv), ctx=s.ctx, W=s.w, H=s.h;
+    if(W<2)return;                 // タブ非表示中（幅0）はスキップ
+    ctx.clearRect(0,0,W,H);
+    var padL=48,padR=14,padT=12,padB=34;
+    var pw=W-padL-padR, ph=H-padT-padB;
+    var d=R.data, key=R.key;
+    var pAll=d.map(function(p){return p[key];}), vAll=d.map(function(p){return p.vol*1000;});
+    var pmn=Math.min.apply(null,pAll), pmx=Math.max.apply(null,pAll);
+    var prr=niceRange(Math.min(0,pmn),pmx); var vmx=Math.max.apply(null,vAll)*1.08;
+    var xOf=function(p){return padL+((p-prr[0])/(prr[1]-prr[0]))*pw;};
+    var yOf=function(v){return padT+ph-(v/vmx)*ph;};
+    // axes
+    ctx.strokeStyle='#1b2740';ctx.lineWidth=1;ctx.strokeRect(padL,padT,pw,ph);
+    ctx.fillStyle='#6c7b95';ctx.font='11px '+getMono();
+    ctx.textAlign='center';ctx.textBaseline='top';
+    ctx.fillText('圧 '+( key==='paw'?'(気道内)':'(気管内)')+' cmH₂O',padL+pw/2,H-16);
+    ctx.save();ctx.translate(14,padT+ph/2);ctx.rotate(-Math.PI/2);ctx.fillText('容量 mL',0,0);ctx.restore();
+    // grid ticks
+    ctx.strokeStyle='#141d30';ctx.fillStyle='#5d6b85';ctx.textBaseline='top';
+    for(var gx=0;gx<=4;gx++){var pv=prr[0]+(prr[1]-prr[0])*gx/4;var X=xOf(pv);ctx.beginPath();ctx.moveTo(X,padT);ctx.lineTo(X,padT+ph);ctx.stroke();ctx.textAlign='center';ctx.fillText(fmt(pv,0),X,padT+ph+4);}
+    for(var gy=0;gy<=4;gy++){var vv=vmx*gy/4;var Y=yOf(vv);ctx.beginPath();ctx.moveTo(padL,Y);ctx.lineTo(padL+pw,Y);ctx.stroke();ctx.textAlign='right';ctx.fillText(fmt(vv,0),padL-5,Y-5);}
+    var Ti=R.Ti;
+    // shade inspiratory area = ∫P dV. base = P=0 (PEEP含む) or P=PEEP (PEEP除外)
+    var baseP=(peepMode==='excl')?R.PEEP:0;
+    var insp=d.filter(function(p){return p.t<=Ti;});
+    ctx.beginPath();
+    ctx.moveTo(xOf(baseP), yOf(insp[0].vol*1000));
+    for(var ii=0; ii<insp.length; ii++){ ctx.lineTo(xOf(insp[ii][key]), yOf(insp[ii].vol*1000)); }
+    ctx.lineTo(xOf(baseP), yOf(insp[insp.length-1].vol*1000));
+    ctx.closePath();
+    ctx.fillStyle='rgba(45,212,191,0.13)'; ctx.fill();
+    // PEEP reference line when excluding PEEP component
+    if(peepMode==='excl' && R.PEEP>0){
+      var Xp=xOf(R.PEEP);
+      ctx.strokeStyle='#38bdf8';ctx.lineWidth=1.4;ctx.setLineDash([4,4]);
+      ctx.beginPath();ctx.moveTo(Xp,padT);ctx.lineTo(Xp,padT+ph);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='#7cc7f0';ctx.font='10px '+getMono();ctx.textAlign='left';ctx.textBaseline='top';
+      ctx.fillText('PEEP',Xp+4,padT+4);
+    }
+    // inspiratory limb
+    ctx.strokeStyle='#2dd4bf';ctx.lineWidth=2.4;ctx.beginPath();
+    for(var a=0;a<d.length;a++){if(d[a].t<=Ti){var X=xOf(d[a][key]),Y=yOf(d[a].vol*1000);if(a===0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);}}
+    ctx.stroke();
+    // expiratory limb
+    ctx.strokeStyle='#7fd9cd';ctx.lineWidth=1.8;ctx.setLineDash([5,4]);ctx.beginPath();var first=true;
+    for(var b=0;b<d.length;b++){if(d[b].t>R.Ti){var X=xOf(d[b][key]),Y=yOf(d[b].vol*1000);if(first){ctx.moveTo(X,Y);first=false;}else ctx.lineTo(X,Y);}}
+    ctx.stroke();ctx.setLineDash([]);
+  }
+
+  // ---------- comparison ----------
+  var snapAdata=null;
+  var CMP_ROWS=[
+    {k:'MP',  lab:'機械的パワー', u:'J/min', d:1, worseUp:true},
+    {k:'Ppk', lab:'最高気道内圧', u:'cmH₂O', d:0, worseUp:true},
+    {k:'Pplat',lab:'プラトー圧',  u:'cmH₂O', d:0, worseUp:true},
+    {k:'dP',  lab:'駆動圧 ΔP',   u:'cmH₂O', d:0, worseUp:true},
+    {k:'Pmean',lab:'平均気道内圧',u:'cmH₂O', d:1, worseUp:false},
+    {k:'VT',  lab:'一回換気量',   u:'mL',    d:0, worseUp:false},
+    {k:'MV',  lab:'分時換気量',   u:'L/min', d:1, worseUp:false}
+  ];
+  function snapVals(R){
+    var Ppk=(src==='air')?R.Ppeak_air:R.Ppeak_tr;
+    return {MP:mpDisplayed(R),Ppk:Ppk,Pplat:R.Pplat,dP:R.dP,Pmean:R.Pmean,VT:R.VTach*1000,MV:R.MV,mode:mode};
+  }
+  function snapA(){ snapAdata=snapVals(simulate()); $('clearBtn').style.display=''; $('snapBtn').textContent='Aを更新'; run(); }
+  function clearA(){ snapAdata=null; $('clearBtn').style.display='none'; $('snapBtn').textContent='現在の設定をAに保存'; $('cmpWrap').style.display='none'; $('cmpHint').style.display=''; }
+  function renderCmp(R){
+    if(!snapAdata){ $('cmpWrap').style.display='none'; $('cmpHint').style.display=''; return; }
+    var B=snapVals(R), A=snapAdata;
+    var h='<table class="cmp"><thead><tr><th>指標</th><th>A ('+A.mode+')</th><th>B 現在 ('+B.mode+')</th><th>Δ (B−A)</th></tr></thead><tbody>';
+    CMP_ROWS.forEach(function(r){
+      var a=A[r.k], b=B[r.k], dv=b-a;
+      var cls='dEq'; if(Math.abs(dv)>=(r.d?0.05:0.5)) cls=((dv>0)===r.worseUp)?'dUp':'dDn';
+      if(!r.worseUp) cls='dEq';
+      var sign=dv>0?'+':'';
+      h+='<tr><td>'+r.lab+'</td><td>'+fmt(a,r.d)+'</td><td>'+fmt(b,r.d)+'</td>'+
+         '<td class="'+cls+'">'+sign+fmt(dv,r.d)+' <span style="color:var(--dim)">'+r.u+'</span></td></tr>';
+    });
+    h+='</tbody></table>';
+    $('cmpWrap').innerHTML=h; $('cmpWrap').style.display=''; $('cmpHint').style.display='none';
+  }
+
+  // ---------- render ----------
+  function run(){
+    $('vtV').textContent=$('vt').value; $('pdV').textContent=$('pd').value;
+    $('cmpV').textContent=$('cmp').value; $('rawV').textContent=$('raw').value;
+    $('rettV').textContent=$('rett').value; $('rrV').textContent=$('rr').value;
+    $('peepV').textContent=$('peep').value;
+    var ieR=IE[Number($('ie').value)]; $('ieV').textContent=ieR[0]+' : '+ieR[1];
+    $('pauseV').textContent=$('pause').value;
+
+    var R=simulate();
+    var excl=(peepMode==='excl');
+    var MPd=mpDisplayed(R);
+    $('mpVal').textContent=fmt(MPd,1);
+    $('mpLab').textContent=excl?'機械的パワー（PEEP成分を除外）':'機械的パワー（P-Vループ積分）';
+    var MPsd=excl?(R.MPs-0.098*R.RR*R.VTach*R.PEEP):R.MPs;
+    $('mpSurr').textContent='換算式(Gattinoni): '+fmt(MPsd,1)+' J/min';
+    // breakdown bar + legend (relative to displayed MP)
+    var tot=Math.max(MPd,1e-4);
+    var bar=$('mpBar').children;
+    bar[0].style.width=(R.MPel/tot*100)+'%';
+    bar[1].style.width=(R.MPres/tot*100)+'%';
+    bar[2].style.width=(excl?0:(R.MPpeep/tot*100))+'%';
+    $('mpEl').textContent=fmt(R.MPel,1); $('mpRe').textContent=fmt(R.MPres,1);
+    $('mpPe').innerHTML=fmt(R.MPpeep,1)+(excl?' <span style="color:var(--dim);font-weight:500">(除外)</span>':'');
+
+    var thr=$('mpThr');
+    if(MPd>=17){thr.innerHTML='<span class="badge" style="background:#3a1d1d;color:#ff9a9a">高値 ≥17 J/min</span>';}
+    else if(MPd>=12){thr.innerHTML='<span class="badge" style="background:#3a2f17;color:#f5c451">注意 12–17 J/min</span>';}
+    else {thr.innerHTML='<span class="badge" style="background:#16291f;color:#6ee7b7">&lt;12 J/min</span>';}
+
+    var dpColor=(R.dP>18)?'var(--red)':(R.dP>15)?'var(--amber)':'var(--green)';
+    $('metrics').innerHTML=
+      '<div class="m"><span class="l">最高気道内圧 P<sub>peak</sub></span><span class="n">'+fmt(R.Ppeak_air,0)+'</span><span class="u">cmH₂O</span></div>'+
+      '<div class="m"><span class="l">プラトー圧 P<sub>plat</sub></span><span class="n">'+fmt(R.Pplat,0)+'</span><span class="u">cmH₂O</span></div>'+
+      '<div class="m"><span class="l">駆動圧 ΔP</span><span class="n" style="color:'+dpColor+'">'+fmt(R.dP,0)+'</span><span class="u">cmH₂O</span></div>'+
+      '<div class="m"><span class="l">平均気道内圧</span><span class="n">'+fmt(R.Pmean,1)+'</span><span class="u">cmH₂O</span></div>'+
+      '<div class="m"><span class="l">実測 V<sub>T</sub></span><span class="n">'+fmt(R.VTach*1000,0)+'</span><span class="u">mL</span></div>'+
+      '<div class="m"><span class="l">分時換気量</span><span class="n">'+fmt(R.MV,1)+'</span><span class="u">L/min</span></div>'+
+      '<div class="m"><span class="l">時定数 τ <span style="color:var(--dim)">(R×C)</span></span><span class="n">'+fmt(R.tau,2)+'</span><span class="u">s（3τ '+fmt(R.tau*3,1)+'s）</span></div>'+
+      '<div class="m"><span class="l">auto-PEEP</span><span class="n" style="color:'+(R.autoPEEP>=1.5?'var(--amber)':'inherit')+'">'+fmt(R.autoPEEP,1)+'</span><span class="u">cmH₂O</span></div>'+
+      '<div class="m"><span class="l">total PEEP</span><span class="n">'+fmt(R.totalPEEP,1)+'</span><span class="u">cmH₂O</span></div>';
+
+    // Stress Index 表示（圧カーブを P=a·tᵇ+c でフィットして b を実測）
+    $('siV').textContent=Number($('si').value).toFixed(2);
+    var sb=$('siBadge');
+    if(mode==='VCV'){
+      var b=R.bfit, interp, col;
+      if(b>=1.1){interp='上に凸 → 吸気中にコンプライアンス低下＝<b>過膨張</b>の疑い。V_T／PEEPを下げる方向。';col='var(--amber)';}
+      else if(b<=0.9){interp='下に凸 → 吸気中にコンプライアンス上昇＝<b>tidal recruitment</b>（虚脱肺が開く）。PEEPを上げる余地。';col='var(--vol)';}
+      else {interp='ほぼ直線 → コンプライアンス一定で<b>適正</b>。';col='var(--green)';}
+      sb.innerHTML='<b>Stress Index ≈ '+fmt(b,2)+'</b>（圧カーブを P=a·tᵇ+c でフィットし指数 b を実測）：<span style="color:'+col+'">'+interp+'</span>';
+    }else{
+      sb.innerHTML='<span style="color:var(--dim)">Stress Index：PCVでは圧カーブから評価不可（定常流VCV限定の指標）。</span>';
+    }
+
+    // 呼気部分／auto-PEEP の読み
+    var eb=$('expBadge'), ratio=R.Te/R.tau;
+    if(R.autoPEEP>=1.5){
+      eb.innerHTML='<span style="color:var(--amber)"><b>呼気が不完全：auto-PEEP '+fmt(R.autoPEEP,1)+' cmH₂O（total PEEP '+fmt(R.totalPEEP,0)+'）。</b></span> 呼気時間 Te '+fmt(R.Te,1)+'s が時定数 τ '+fmt(R.tau,2)+'s の約'+fmt(ratio,1)+'倍（&lt;3τ）でガストラップ。呼気流量が0に戻らない。RR／I:Eを下げTeをのばすかRを下げる。';
+    }else{
+      eb.innerHTML='<span style="color:var(--dim)">呼気：近位の気道内圧はPEEPで平坦（気管内圧＝破線は高め）。Te '+fmt(R.Te,1)+'s ≈ '+fmt(ratio,1)+'τ 確保で auto-PEEP '+fmt(R.autoPEEP,1)+' cmH₂O（ほぼ無し）。呼気の本情報は流量カーブ（τ・ゼロ復帰）に出る。</span>';
+    }
+
+    drawWave(R); drawLoop(R); renderCmp(R);
+  }
+
+  // ---------- PBW ----------
+  function pbw(){
+    var h=Number($('ht').value); $('htV').textContent=h;
+    var base=(sex==='M')?50:45.5;
+    var p=base+0.91*(h-152.4); if(p<0)p=0;
+    $('pbwV').textContent=fmt(p,1);
+    $('vt6').textContent=fmt(p*6,0);
+    $('vt8').textContent=fmt(p*8,0);
+    window._pbw=p;
+  }
+  function applyVT(){ if(window._pbw){var v=Math.round(window._pbw*6/10)*10; v=Math.max(150,Math.min(800,v)); $('vt').value=v; if(mode==='PCV')setMode('VCV'); run();} }
+
+  // ---------- 実測モード（患者評価） ----------
+  function mcell(l,n,u,col){return '<div class="m"><span class="l">'+l+'</span><span class="n"'+(col?(' style="color:'+col+'"'):'')+'>'+n+'</span><span class="u">'+u+'</span></div>';}
+  function setMeSex(s){meSex=s;setBtn('meSexM',s==='M');setBtn('meSexF',s==='F');calcMeasure();}
+  function meClearMP(){ $('meMpVal').textContent='—'; $('meMpThr').innerHTML=''; var b=$('meMpBar').children; b[0].style.width='0';b[1].style.width='0';b[2].style.width='0'; $('meMpEl').textContent='—';$('meMpRe').textContent='—';$('meMpPe').textContent='—'; }
+  function calcMeasure(){
+    var VT=Number($('meVT').value), Flow=Number($('meFlow').value), RR=Number($('meRR').value);
+    var Ppk=Number($('mePpk').value), Ppl=Number($('mePpl').value), PEEP=Number($('mePEEP').value), totP=Number($('meTotPEEP').value);
+    if(!(totP>0)||totP<PEEP) totP=PEEP;
+    var out=$('meOut'), vb=$('meVerdict');
+    // 体格：理想体重 PBW（身長・性別だけで決まる）は常に更新
+    var ht=Number($('meHt').value);
+    var pbwv=(meSex==='M'?50:45.5)+0.91*(ht-152.4); if(!(pbwv>0))pbwv=0;
+    $('meHtPbw').textContent=pbwv>0?fmt(pbwv,1):'—';
+    function bad(msg){out.innerHTML='';meClearMP();vb.style.borderColor='#7f3030';vb.style.background='#3a1d1d';vb.style.color='#ffd9d9';vb.innerHTML='<b>入力を確認：</b>'+msg;}
+    if(!(VT>0)) return bad('V_T を入力してください。');
+    if(!(Flow>0)) return bad('吸気フロー（L/min）を入力してください。');
+    if(!(Ppk>Ppl)) return bad('Ppeak は Pplat より大きく入力してください。');
+    if(!(Ppl>totP)) return bad('Pplat は total PEEP より大きく入力してください（Pplat−PEEP＝駆動圧）。');
+
+    var FlowLs=Flow/60;
+    var R=(Ppk-Ppl)/FlowLs;
+    var dP=Ppl-totP;
+    var C=VT/dP;                       // mL/cmH2O
+    var autoP=totP-PEEP;
+    var tau=R*(C/1000);               // s
+    var VTl=VT/1000;
+    var MPpeep=0.098*RR*totP*VTl, MPel=0.098*RR*0.5*dP*VTl, MPres=0.098*RR*(Ppk-Ppl)*VTl;
+    var MP=MPpeep+MPel+MPres;
+    // timing from I:E + RR（＋ポーズは吸気時間の内訳）
+    var ie=$('meIE').value.split(':'), Ipart=Number(ie[0]), Epart=Number(ie[1]);
+    var pause=Number($('mePause').value)/100; if(!(pause>=0))pause=0;
+    var Tc=(RR>0)?60/RR:NaN, Ti=Tc*Ipart/(Ipart+Epart), Te=Tc-Ti;
+    var TeShort=(tau>0 && Te < 3*tau);
+    var vtkg=(pbwv>0)?VT/pbwv:0;   // PBWは上部で算出済み
+
+    // 推定MP（強調ボックス）
+    $('meMpVal').textContent=fmt(MP,1);
+    var mthr=$('meMpThr');
+    if(MP>=17)mthr.innerHTML='<span class="badge" style="background:#3a1d1d;color:#ff9a9a">高値 ≥17 J/min</span>';
+    else if(MP>=12)mthr.innerHTML='<span class="badge" style="background:#3a2f17;color:#f5c451">注意 12–17 J/min</span>';
+    else mthr.innerHTML='<span class="badge" style="background:#16291f;color:#6ee7b7">&lt;12 J/min</span>';
+    var mtot=Math.max(MP,1e-4), mbar=$('meMpBar').children;
+    mbar[0].style.width=(MPel/mtot*100)+'%'; mbar[1].style.width=(MPres/mtot*100)+'%'; mbar[2].style.width=(MPpeep/mtot*100)+'%';
+    $('meMpEl').textContent=fmt(MPel,1); $('meMpRe').textContent=fmt(MPres,1); $('meMpPe').textContent=fmt(MPpeep,1);
+
+    out.innerHTML=
+      mcell('気道+ETT抵抗 R',fmt(R,1),'cmH₂O/L/s', R>15?'var(--amber)':'')+
+      mcell('コンプライアンス C',fmt(C,0),'mL/cmH₂O', C<35?'var(--amber)':'')+
+      mcell('駆動圧 ΔP',fmt(dP,0),'cmH₂O', dP>15?'var(--red)':(dP>13?'var(--amber)':''))+
+      mcell('auto-PEEP',fmt(autoP,1),'cmH₂O', autoP>=1.5?'var(--amber)':'')+
+      mcell('時定数 τ',fmt(tau,2),'s（3τ '+fmt(tau*3,1)+'s）','')+
+      mcell('吸気時間 T<sub>i</sub>',fmt(Ti,2),'s（ポーズ '+fmt(pause*100,0)+'%）','')+
+      mcell('呼気時間 T<sub>e</sub>',fmt(Te,2),'s（'+fmt(Te/tau,1)+'τ）', TeShort?'var(--amber)':'')+
+      mcell('V<sub>T</sub> / kg PBW',fmt(vtkg,1),'mL/kg', vtkg>8?'var(--amber)':'');
+
+    var flags=[];
+    if(vtkg>8) flags.push('<b>V_T が大きい</b>（'+fmt(vtkg,1)+' mL/kg PBW > 8）');
+    if(R>15) flags.push('<b>抵抗高値</b>（気管支痙攣・分泌物・チューブ細い/屈曲を疑う）');
+    if(C<35) flags.push('<b>低コンプライアンス</b>（ARDS・無気肺・気腹・肥満など）');
+    if(dP>15) flags.push('<b>駆動圧>15</b>（肺保護的でない。V_T/PEEP再考）');
+    if(autoP>=1.5) flags.push('<b>auto-PEEP</b>（呼気不十分。RR/I:Eを下げTeをのばす）');
+    if(TeShort) flags.push('<b>呼気時間不足</b>（Te '+fmt(Te,1)+'s < 3τ '+fmt(3*tau,1)+'s）＝完全呼気に不十分・ガストラップ注意');
+    if(MP>=17) flags.push('<b>MP高値≥17</b>');
+    if(flags.length){
+      vb.style.borderColor='#7a5a1f';vb.style.background='#2a2210';vb.style.color='#f5dca0';
+      vb.innerHTML='注意点：'+flags.join('／')+'。';
+    }else{
+      vb.style.borderColor='#1f5a3a';vb.style.background='#10241b';vb.style.color='#bdf0d4';
+      vb.innerHTML='<b>おおむね良好</b>：抵抗・コンプライアンス・駆動圧・MP・auto-PEEP いずれも許容範囲。';
+    }
+  }
+  function meCalcFlow(){   // VCV定常流：吸気フロー = VT /（吸気時間×(1−ポーズ比)）
+    var VT=Number($('meVT').value), RR=Number($('meRR').value);
+    var ie=$('meIE').value.split(':'), Ipart=Number(ie[0]), Epart=Number(ie[1]);
+    var pause=Number($('mePause').value)/100; if(!(pause>=0))pause=0;
+    var Tc=(RR>0)?60/RR:0, Ti=Tc*Ipart/(Ipart+Epart), Tflow=Ti*(1-pause);
+    if(VT>0 && Tflow>0){ $('meFlow').value=Math.round((VT/1000)/Tflow*60); }
+    calcMeasure();
+  }
+  function calc2flow(){
+    var f1=Number($('me2f1').value),p1=Number($('me2p1').value),f2=Number($('me2f2').value),p2=Number($('me2p2').value);
+    var val=$('me2fVal'), note=$('me2fNote');
+    if(!(Math.abs(f2-f1)>0)){val.textContent='—';val.style.color='var(--dim)';note.style.borderColor='#7f3030';note.style.background='#3a1d1d';note.style.color='#ffd9d9';note.innerHTML='フロー₁とフロー₂は別の値にしてください。';return;}
+    var R=(p2-p1)/((f2-f1)/60);
+    val.textContent=fmt(R,1);
+    if(R>0){val.style.color='var(--power)';note.style.borderColor='#1f5a3a';note.style.background='#10241b';note.style.color='#bdf0d4';note.innerHTML='<b>R ≈ '+fmt(R,1)+' cmH₂O/L/s</b>。Ppeakの差はすべて抵抗由来（Pplatはフロー非依存）。プラトーが取れなくても気道抵抗が推定できます。';}
+    else {val.style.color='var(--amber)';note.style.borderColor='#7a5a1f';note.style.background='#2a2210';note.style.color='#f5dca0';note.innerHTML='フローを上げたのにPpeakが下がる入力です。値を確認してください。';}
+  }
+
+  // ---------- decremental PEEP trial（最良PEEP探索） ----------
+  function calcDecPEEP(){
+    var VT=Number($('dpVT').value), rows=6, best=-1, bestC=-1, data=[];
+    for(var i=0;i<rows;i++){
+      var P=Number($('dpPEEP'+i).value), Ppl=Number($('dpPplat'+i).value);
+      var dP=Ppl-P, C=(dP>0&&VT>0)?VT/dP:NaN;
+      data.push({P:P,dP:dP,C:C});
+      $('dpDP'+i).textContent=(dP>0)?fmt(dP,0):'—';
+      $('dpC'+i).textContent=(C>0)?fmt(C,0):'—';
+      $('dpRow'+i).className='';
+      if(C>0 && C>bestC){bestC=C;best=i;}
+    }
+    var rb=$('dpResult');
+    if(best>=0){
+      $('dpRow'+best).className='best';
+      var b=data[best];
+      rb.style.borderColor='#1f5a3a';rb.style.background='#10241b';rb.style.color='#bdf0d4';
+      rb.innerHTML='<b>最良 PEEP ≈ '+fmt(b.P,0)+' cmH₂O</b>（C<sub>rs</sub> '+fmt(b.C,0)+' mL/cmH₂O・駆動圧 '+fmt(b.dP,0)+' が最小）。過膨張と虚脱の境目。開放維持を重視するなら +2 cmH₂O も一案。';
+    }else{
+      rb.style.borderColor='#7f3030';rb.style.background='#3a1d1d';rb.style.color='#ffd9d9';
+      rb.innerHTML='各段の Pplat > PEEP と V<sub>T</sub> を入力してください。';
+    }
+  }
+
+  // ---------- 換気量・CO₂ 管理 ----------
+  function coAddApp(x){ $('coApp').value=Math.max(0,(Number($('coApp').value)||0)+x); calcCO2(); }
+  function coSetApp(x){ $('coApp').value=x; calcCO2(); }
+  function calcCO2(){
+    var VT=Number($('coVT').value), RR=Number($('coRR').value), wt=Number($('coWt').value), et=Number($('coEt').value), tgt=Number($('coTgt').value);
+    var dev=$('coDev').value, app=Number($('coApp').value); if(!(app>=0))app=0;
+    var out=$('coOut'), vb=$('coVerdict');
+    function bad(msg){out.innerHTML='';vb.style.borderColor='#7f3030';vb.style.background='#3a1d1d';vb.style.color='#ffd9d9';vb.innerHTML='<b>入力を確認：</b>'+msg;}
+    if(!(VT>0&&RR>0)) return bad('V_T と RR を入力してください。');
+    var anatF=(dev==='ett')?1.0:(dev==='mask')?2.2:2.0;   // mL/kg（ETTは上気道バイパスで概算半減）
+    var VDanat=Math.max(anatF*wt,0);
+    var VD=VDanat+app; if(VD>VT*0.95)VD=VT*0.95;
+    var MV=VT*RR/1000;
+    var VAlv=Math.max(VT-VD,0)*RR/1000;
+    var vdvt=(VT>0)?VD/VT:0;
+    var ratio=(tgt>0&&et>0)?et/tgt:NaN;
+    var RRnew=(ratio>0)?RR*ratio:NaN;
+    var VTnew=(ratio>0)?VD+(VT-VD)*ratio:NaN;
+    var pHnow=7.40-0.008*(et-40), pHtgt=7.40-0.008*(tgt-40);
+    out.innerHTML=
+      mcell('分時換気量 MV',fmt(MV,1),'L/min','')+
+      mcell('解剖学的死腔',fmt(VDanat,0),'mL（'+fmt(anatF,1)+'/kg）','')+
+      mcell('器具死腔',fmt(app,0),'mL','')+
+      mcell('合計死腔 V<sub>D</sub>',fmt(VD,0),'mL','')+
+      mcell('V<sub>D</sub>/V<sub>T</sub>',fmt(vdvt*100,0),'%', vdvt>0.4?'var(--amber)':'')+
+      mcell('肺胞換気量 V<sub>A</sub>',fmt(VAlv,2),'L/min','')+
+      mcell('目標RR（V<sub>T</sub>固定）',fmt(RRnew,0),'/min','')+
+      mcell('目標V<sub>T</sub>（RR固定）',fmt(VTnew,0),'mL', VTnew>(wt>0?wt*8:9999)?'var(--amber)':'');
+    var dir=(tgt<et)?'換気を増やす':(tgt>et?'換気を減らす（許容性高炭酸）':'維持');
+    vb.innerHTML='<b>目標EtCO₂ '+fmt(tgt,0)+' への調整（'+dir+'）：</b> V<sub>T</sub>一定なら RR ≈ <b>'+fmt(RRnew,0)+'</b> /min、RR一定なら V<sub>T</sub> ≈ <b>'+fmt(VTnew,0)+'</b> mL。<br>推定pH：現 '+fmt(pHnow,2)+' → 目標 '+fmt(pHtgt,2)+(pHtgt<7.2?'（&lt;7.20 要注意）':'')+'。<span style="color:var(--dim)">EtCO₂はPaCO₂より2〜5低めに出る点に注意。</span>';
+    if(pHtgt<7.2){vb.style.borderColor='#7a5a1f';vb.style.background='#2a2210';vb.style.color='#f5dca0';}
+    else{vb.style.borderColor='#1f5a3a';vb.style.background='#10241b';vb.style.color='#bdf0d4';}
+  }
+
+  // ---------- Recruitment-to-Inflation (R/I) ratio ----------
+  function calcRI(){
+    var VT=Number($('riVT').value), Ph=Number($('riPh').value), Pl=Number($('riPl').value);
+    var PpH=Number($('riPpH').value), PpL=Number($('riPpL').value), Vexp=Number($('riVexp').value);
+    var dPEEP=Ph-Pl, driveL=PpL-Pl, driveH=PpH-Ph;
+    var out=$('riOut'), val=$('riVal'), box=$('riVerdict');
+    function bad(msg){ out.innerHTML=''; val.textContent='—'; val.style.color='var(--dim)';
+      box.style.borderColor='#7f3030'; box.style.background='#3a1d1d'; box.style.color='#ffd9d9'; box.innerHTML='<b>入力を確認：</b>'+msg; }
+    if(!(dPEEP>0)) return bad('高PEEP は 低PEEP より大きく入力してください。');
+    if(!(driveL>0)) return bad('Pplat(低) は 低PEEP より大きく入力してください。');
+    if(!(driveH>0)) return bad('Pplat(高) は 高PEEP より大きく入力してください。');
+    if(!(VT>0)) return bad('V_T を入力してください。');
+
+    var Clow=VT/driveL, Chigh=VT/driveH;
+    var dEELV=Vexp-VT;
+    var Vrec=dEELV - Clow*dPEEP; if(Vrec<0)Vrec=0;          // 負＝有意なリクルートなし→0扱い
+    var Crec=Vrec/dPEEP;
+    var RI=Crec/Clow;
+
+    out.innerHTML=
+      '<div class="m"><span class="l">ΔPEEP</span><span class="n">'+fmt(dPEEP,0)+'</span><span class="u">cmH₂O</span></div>'+
+      '<div class="m"><span class="l">C<sub>rs</sub>（低PEEP）</span><span class="n">'+fmt(Clow,1)+'</span><span class="u">mL/cmH₂O</span></div>'+
+      '<div class="m"><span class="l">C<sub>rs</sub>（高PEEP）</span><span class="n">'+fmt(Chigh,1)+'</span><span class="u">mL/cmH₂O</span></div>'+
+      '<div class="m"><span class="l">解放量 ΔEELV</span><span class="n">'+fmt(dEELV,0)+'</span><span class="u">mL</span></div>'+
+      '<div class="m"><span class="l">リクルート量 V<sub>rec</sub></span><span class="n">'+fmt(Vrec,0)+'</span><span class="u">mL</span></div>'+
+      '<div class="m"><span class="l">C<sub>rec</sub></span><span class="n">'+fmt(Crec,1)+'</span><span class="u">mL/cmH₂O</span></div>';
+
+    val.textContent=fmt(RI,2);
+    if(RI>=0.5){
+      val.style.color='var(--green)';
+      box.style.borderColor='#1f5a3a'; box.style.background='#10241b'; box.style.color='#bdf0d4';
+      box.innerHTML='<b>リクルータビリティ高い（R/I '+fmt(RI,2)+' ≥ 0.5）。</b>高めのPEEP／リクルートメント手技の恩恵が期待できる集団。ΔP・MP・酸素化を見ながら高PEEP側を試す価値あり。';
+    }else if(RI>0){
+      val.style.color='var(--amber)';
+      box.style.borderColor='#7a5a1f'; box.style.background='#2a2210'; box.style.color='#f5dca0';
+      box.innerHTML='<b>リクルータビリティ乏しい（R/I '+fmt(RI,2)+' < 0.5）。</b>高PEEPは過膨張・MP増のリスクが勝りやすい。低め〜中等度PEEP寄りで、ΔP最小化を優先。';
+    }else{
+      val.style.color='var(--dim)';
+      box.style.borderColor='#3a4459'; box.style.background='#161d2b'; box.style.color='var(--muted)';
+      box.innerHTML='<b>有意なリクルートメントなし（R/I ≈ 0）。</b>このPEEP差で開く肺はほぼ無し。高PEEPの上乗せ効果は乏しい。';
+    }
+  }
+
+  window.addEventListener('resize',function(){run();});
+  pbw(); run(); calcRI(); calcMeasure(); calc2flow(); calcDecPEEP(); calcCO2();
+
+  // ---------- PWA service worker ----------
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+  }
+</script>
+</body>
+</html>
