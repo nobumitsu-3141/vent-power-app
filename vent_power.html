@@ -110,6 +110,9 @@
   .note b{color:var(--txt)}
   .disc{background:#3a1d1d;border:1px solid #7f3030;border-radius:11px;padding:11px 13px;font-size:11.5px;color:#ffd9d9;line-height:1.6;margin-top:18px}
   .disc b{color:#ffb3b3}
+  .appfoot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--dim)}
+  .appfoot .upd{font-size:11px;color:var(--muted)}
+  .appfoot #appVer{font-family:var(--mono)}
   .badge{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700}
   .miniToggle{background:var(--elev);border:1px solid var(--line);color:var(--muted);font-family:var(--ui);font-size:11px;font-weight:700;padding:5px 11px;border-radius:8px;cursor:pointer;letter-spacing:0;text-transform:none}
   .miniToggle[aria-pressed="true"]{background:rgba(45,212,191,.14);border-color:var(--power);color:var(--power)}
@@ -493,10 +496,18 @@
   </section>
 
   <div class="disc"><b>注意：</b>単一コンパートメント・線形モデルによる教育/概念検討用シミュレーションです。実機の波形・実測パワー・個々の患者病態を代替しません。R/I ratio・実測モードは入力値に基づく推定で、自発呼吸の残存・リーク・流量未平衡・非定常流があると誤差を生みます。設定値・閾値は施設プロトコルと最新文献で確認してください。</div>
+
+  <div class="appfoot">
+    <span id="appVer">バージョン —</span>
+    <span style="flex:1"></span>
+    <span id="appUpd" class="upd"></span>
+    <button class="miniToggle" id="appUpdBtn" onclick="forceUpdate()">最新版に更新</button>
+  </div>
 </main>
 
 <script>
   var mode='VCV', src='air', sex='M', peepMode='incl', annot=true, meSex='M';
+  var APP_VERSION='1.0.0', APP_DATE='2026-06-28';
   var IE=[[1,1],[1,1.5],[1,2],[1,3],[1,4]];
 
   function $(id){return document.getElementById(id);}
@@ -1100,10 +1111,39 @@
   window.addEventListener('resize',function(){run();});
   pbw(); run(); calcRI(); calcMeasure(); calc2flow(); calcDecPEEP(); calcCO2();
 
-  // ---------- PWA service worker ----------
-  if('serviceWorker' in navigator){
-    window.addEventListener('load',function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+  // ---------- バージョン表示・手動更新 ----------
+  $('appVer').textContent='バージョン '+APP_VERSION+'（'+APP_DATE+'）';
+  function checkUpdate(){
+    if(!navigator.onLine){ $('appUpd').textContent=''; return; }
+    fetch('version.json?_t='+(new Date()).getTime(),{cache:'no-store'})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(j&&j.version&&j.version!==APP_VERSION){
+          $('appUpd').innerHTML='<span style="color:var(--amber)">新しいバージョン '+j.version+' があります</span>';
+          $('appUpdBtn').setAttribute('aria-pressed','true');
+        }else{ $('appUpd').textContent='最新です'; }
+      }).catch(function(){ $('appUpd').textContent=''; });
   }
+  function forceUpdate(){
+    var s=$('appUpd');
+    if(!navigator.onLine){ s.innerHTML='<span style="color:var(--amber)">オフラインです。オンライン時に更新してください</span>'; return; }
+    s.textContent='更新中…';
+    var fin=function(){ location.reload(); };
+    var p=Promise.resolve();
+    if('serviceWorker' in navigator){ p=navigator.serviceWorker.getRegistration().then(function(reg){ return reg?reg.update().catch(function(){}):null; }); }
+    p.then(function(){ return (window.caches)?caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){return caches.delete(k);})); }):null; })
+     .then(fin).catch(fin);
+  }
+
+  // ---------- PWA service worker（更新時は自動リロード） ----------
+  if('serviceWorker' in navigator){
+    var swReloaded=false;
+    navigator.serviceWorker.addEventListener('controllerchange',function(){ if(swReloaded)return; swReloaded=true; location.reload(); });
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('sw.js').then(function(reg){ reg.update().catch(function(){}); }).catch(function(){});
+    });
+  }
+  checkUpdate();
 </script>
 </body>
 </html>
