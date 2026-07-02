@@ -1,5 +1,5 @@
 /* Vent Power — service worker (network-first, cache fallback for offline) */
-const CACHE = 'ventpower-v4';
+const CACHE = 'ventpower-v5';
 const ASSETS = [
   './',
   'index.html',
